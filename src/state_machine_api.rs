@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use map_api::MapApi;
 
 use crate::ExpireKey;
@@ -48,6 +50,20 @@ pub trait StateMachineApi<SysData>: Send + Sync {
 
     /// Returns a mutable reference to the map that stores expired key data.
     fn expire_map_mut(&mut self) -> &mut Self::ExpireMap;
+
+    /// The timestamp since which to start cleaning expired keys.
+    ///
+    /// The timestamp is the duration since the Unix epoch.
+    /// Applications should save this timestamp when using storage with tombstones
+    /// that persist across cleanup rounds.
+    fn cleanup_start_timestamp(&self) -> Duration;
+
+    /// Set the timestamp since which to start cleaning expired keys.
+    ///
+    /// The timestamp is the duration since the Unix epoch.
+    /// Applications should save this timestamp when using storage with tombstones
+    /// that persist across cleanup rounds.
+    fn set_cleanup_start_timestamp(&mut self, timestamp: Duration);
 
     /// Returns a mutable reference to the system data.
     ///
