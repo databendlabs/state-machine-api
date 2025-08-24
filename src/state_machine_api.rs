@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::io;
 use std::time::Duration;
 
-use map_api::MapApi;
+use map_api::mvcc;
 
 use crate::ExpireKey;
+use crate::MetaValue;
 use crate::SeqV;
 use crate::UserKey;
 
@@ -24,9 +26,10 @@ use crate::UserKey;
 ///
 /// The state machine is responsible for managing the application's persistent state,
 /// including application kv data and expired key data.
+#[async_trait::async_trait]
 pub trait StateMachineApi<SysData>: Send + Sync {
     /// The map that stores application data.
-    type UserMap: MapApi<UserKey> + 'static;
+    type UserMap: mvcc::ScopedView<UserKey, MetaValue> + Send + Sync + 'static;
 
     /// Returns a reference to the map that stores application data.
     ///
@@ -43,7 +46,7 @@ pub trait StateMachineApi<SysData>: Send + Sync {
     fn user_map_mut(&mut self) -> &mut Self::UserMap;
 
     /// The map that stores expired key data.
-    type ExpireMap: MapApi<ExpireKey> + 'static;
+    type ExpireMap: mvcc::ScopedView<ExpireKey, String> + Send + Sync + 'static;
 
     /// Returns a reference to the map that stores expired key data.
     fn expire_map(&self) -> &Self::ExpireMap;
@@ -56,20 +59,27 @@ pub trait StateMachineApi<SysData>: Send + Sync {
     /// The timestamp is the duration since the Unix epoch.
     /// Applications should save this timestamp when using storage with tombstones
     /// that persist across cleanup rounds.
-    fn cleanup_start_timestamp(&self) -> Duration;
+    fn with_cleanup_start_timestamp<T>(&self, f: impl FnOnce(&mut Duration) -> T) -> T;
+
+    /// Returns the timestamp since which to start cleaning expired keys.
+    fn cleanup_start_timestamp(&self) -> Duration {
+        self.with_cleanup_start_timestamp(|ts| *ts)
+    }
 
     /// Set the timestamp since which to start cleaning expired keys.
-    ///
-    /// The timestamp is the duration since the Unix epoch.
-    /// Applications should save this timestamp when using storage with tombstones
-    /// that persist across cleanup rounds.
-    fn set_cleanup_start_timestamp(&mut self, timestamp: Duration);
+    fn set_cleanup_start_timestamp(&mut self, timestamp: Duration) {
+        self.with_cleanup_start_timestamp(|ts| {
+            *ts = timestamp;
+        });
+    }
 
-    /// Returns a mutable reference to the system data.
+    /// Access the system data.
     ///
-    /// This method provides read-write access to the system data, which includes
+    /// This method provides access to the system data, which includes
     /// metadata about the state machine and its configuration.
-    fn sys_data_mut(&mut self) -> &mut SysData;
+    fn with_sys_data<T>(&self, f: impl FnOnce(&mut SysData) -> T) -> T;
+
+    async fn commit(self) -> Result<(), io::Error>;
 
     /// Notify subscribers of a key-value change applied to the state machine.
     ///

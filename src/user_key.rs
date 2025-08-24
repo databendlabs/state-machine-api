@@ -17,7 +17,7 @@ use std::ops::Deref;
 
 use map_api::MapKey;
 
-use crate::KVMeta;
+use crate::MetaValue;
 
 /// Key for the user data in state machine
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -53,7 +53,7 @@ impl fmt::Display for UserKey {
 }
 
 impl MapKey for UserKey {
-    type V = (Option<KVMeta>, Vec<u8>);
+    type V = MetaValue;
 }
 
 impl UserKey {
