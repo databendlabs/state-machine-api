@@ -33,15 +33,21 @@ pub struct KVMeta {
     ///
     /// See [`flexible_timestamp_to_duration`]
     pub expire_at: Option<u64>,
+
+    /// The timestamp in milliseconds since Unix epoch (1970-01-01)
+    /// when the raft-log that writes this record is proposed by the Raft Leader.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposed_at_ms: Option<u64>,
 }
 
 impl KVMeta {
     /// Create a new KVMeta.
     ///
     /// `expire_at_sec_or_ms` can be either seconds or milliseconds.
-    pub fn new(expire_at_sec_or_ms: Option<u64>) -> Self {
+    pub fn new(expire_at_sec_or_ms: Option<u64>, proposed_at_ms: Option<u64>) -> Self {
         Self {
             expire_at: expire_at_sec_or_ms,
+            proposed_at_ms,
         }
     }
 
@@ -51,6 +57,7 @@ impl KVMeta {
     pub fn new_expires_at(expires_at_sec_or_ms: u64) -> Self {
         Self {
             expire_at: Some(expires_at_sec_or_ms),
+            proposed_at_ms: None,
         }
     }
 
@@ -68,18 +75,43 @@ impl KVMeta {
     pub fn expires_at_duration_opt(&self) -> Option<Duration> {
         self.expire_at.map(flexible_timestamp_to_duration)
     }
+
+    pub fn proposed_at(&self) -> Option<Duration> {
+        self.proposed_at_ms.map(Duration::from_millis)
+    }
 }
 
 impl fmt::Display for KVMeta {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.expires_at_duration_opt() {
-            Some(expire_at) => write!(
+        write!(f, "(",)?;
+
+        let mut need_comma = false;
+
+        if let Some(expire_at) = self.expires_at_duration_opt() {
+            need_comma = true;
+            write!(
                 f,
-                "(expires_at: {})",
+                "expires_at: {}",
                 expire_at.display_unix_timestamp_short()
-            ),
-            None => write!(f, "()"),
+            )?
         }
+
+        if let Some(proposed_at) = self.proposed_at() {
+            if need_comma {
+                write!(f, ", ")?;
+            }
+            need_comma = true;
+            write!(
+                f,
+                "proposed_at: {}",
+                proposed_at.display_unix_timestamp_short()
+            )?
+        }
+
+        let _ = need_comma;
+
+        write!(f, ")",)?;
+        Ok(())
     }
 }
 
@@ -95,31 +127,31 @@ mod tests {
 
     #[test]
     fn test_kv_meta_expirable_trait() {
-        let kv_meta = KVMeta::new(Some(100_000_000_000));
+        let kv_meta = KVMeta::new(Some(100_000_000_000), None);
         assert_eq!(kv_meta.expires_at_ms_opt(), Some(100_000_000_000_000));
 
-        let kv_meta = KVMeta::new(Some(100_000_000_001));
+        let kv_meta = KVMeta::new(Some(100_000_000_001), None);
         assert_eq!(kv_meta.expires_at_ms_opt(), Some(100_000_000_001));
     }
 
     #[test]
     fn test_kv_meta_method_get_expire_at_ms() {
-        let kv_meta = KVMeta::new(Some(100_000_000_000));
+        let kv_meta = KVMeta::new(Some(100_000_000_000), None);
         assert_eq!(kv_meta.get_expire_at_ms(), Some(100_000_000_000_000));
 
-        let kv_meta = KVMeta::new(Some(100_000_000_001));
+        let kv_meta = KVMeta::new(Some(100_000_000_001), None);
         assert_eq!(kv_meta.get_expire_at_ms(), Some(100_000_000_001));
     }
 
     #[test]
     fn test_kv_meta_method_expires_at_duration() {
-        let kv_meta = KVMeta::new(Some(100_000_000_000));
+        let kv_meta = KVMeta::new(Some(100_000_000_000), None);
         assert_eq!(
             kv_meta.expires_at_duration_opt(),
             Some(Duration::from_secs(100_000_000_000))
         );
 
-        let kv_meta = KVMeta::new(Some(100_000_000_001));
+        let kv_meta = KVMeta::new(Some(100_000_000_001), None);
         assert_eq!(
             kv_meta.expires_at_duration_opt(),
             Some(Duration::from_millis(100_000_000_001))
@@ -128,13 +160,65 @@ mod tests {
 
     #[test]
     fn test_kv_meta_display() {
-        let kv_meta = KVMeta::new(Some(100_000_000_000));
+        let kv_meta = KVMeta::new(Some(100_000_000_000), None);
         assert_eq!(kv_meta.to_string(), "(expires_at: 5138-11-16T09:46:40.000)");
 
-        let kv_meta = KVMeta::new(Some(100_000_000_001));
+        let kv_meta = KVMeta::new(Some(100_000_000_001), None);
         assert_eq!(kv_meta.to_string(), "(expires_at: 1973-03-03T09:46:40.001)");
 
-        let kv_meta = KVMeta::new(None);
+        let kv_meta = KVMeta::new(Some(100_000_000_001), Some(100_000_000_002));
+        assert_eq!(
+            kv_meta.to_string(),
+            "(expires_at: 1973-03-03T09:46:40.001, proposed_at: 1973-03-03T09:46:40.002)"
+        );
+
+        let kv_meta = KVMeta::new(None, Some(100_000_000_002));
+        assert_eq!(
+            kv_meta.to_string(),
+            "(proposed_at: 1973-03-03T09:46:40.002)"
+        );
+
+        let kv_meta = KVMeta::new(None, None);
         assert_eq!(kv_meta.to_string(), "()");
+    }
+
+    #[test]
+    fn test_kv_meta_serde() {
+        let kv_meta = KVMeta::new(Some(100_000_000_001), Some(100_000_000_002));
+        let serialized = serde_json::to_string(&kv_meta).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"expire_at":100000000001,"proposed_at_ms":100000000002}"#
+        );
+
+        let kv_meta = KVMeta::new(Some(100_000_000_001), None);
+        let serialized = serde_json::to_string(&kv_meta).unwrap();
+        assert_eq!(serialized, r#"{"expire_at":100000000001}"#);
+
+        let kv_meta = KVMeta::new(None, Some(100_000_000_002));
+        let serialized = serde_json::to_string(&kv_meta).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"expire_at":null,"proposed_at_ms":100000000002}"#
+        );
+
+        let s = r#"{"expire_at":100000000001,"proposed_at_ms":100000000002}"#;
+        let deserialized: KVMeta = serde_json::from_str(s).unwrap();
+        assert_eq!(
+            deserialized,
+            KVMeta::new(Some(100_000_000_001), Some(100_000_000_002))
+        );
+
+        let s = r#"{"expire_at":100000000001}"#;
+        let deserialized: KVMeta = serde_json::from_str(s).unwrap();
+        assert_eq!(deserialized, KVMeta::new(Some(100_000_000_001), None));
+
+        let s = r#"{"proposed_at_ms":100000000002}"#;
+        let deserialized: KVMeta = serde_json::from_str(s).unwrap();
+        assert_eq!(deserialized, KVMeta::new(None, Some(100_000_000_002)));
+
+        let s = r#"{}"#;
+        let deserialized: KVMeta = serde_json::from_str(s).unwrap();
+        assert_eq!(deserialized, KVMeta::new(None, None));
     }
 }
