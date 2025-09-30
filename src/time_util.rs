@@ -45,7 +45,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_adaptable_timestamp_to_duration() {
+    fn test_flexible_timestamp_to_duration() {
         assert_eq!(
             flexible_timestamp_to_duration(100_000_000_001),
             Duration::from_millis(100_000_000_001)
