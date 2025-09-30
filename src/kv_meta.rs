@@ -79,6 +79,10 @@ impl KVMeta {
     pub fn proposed_at(&self) -> Option<Duration> {
         self.proposed_at_ms.map(Duration::from_millis)
     }
+
+    pub fn proposed_at_ms(&self) -> Option<u64> {
+        self.proposed_at_ms
+    }
 }
 
 impl fmt::Display for KVMeta {
@@ -180,6 +184,16 @@ mod tests {
 
         let kv_meta = KVMeta::new(None, None);
         assert_eq!(kv_meta.to_string(), "()");
+    }
+
+    #[test]
+    fn test_kv_meta_proposed_at() {
+        let kv_meta = KVMeta::new(Some(100_000_000_001), Some(100_000_000_002));
+        assert_eq!(kv_meta.proposed_at_ms(), Some(100_000_000_002));
+        assert_eq!(
+            kv_meta.proposed_at(),
+            Some(Duration::from_millis(100_000_000_002))
+        );
     }
 
     #[test]
