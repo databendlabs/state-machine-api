@@ -32,6 +32,7 @@ pub struct KVMeta {
     /// - Values ≤ `100_000_000_000`: treated as seconds since epoch
     ///
     /// See [`flexible_timestamp_to_duration`]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expire_at: Option<u64>,
 
     /// The timestamp in milliseconds since Unix epoch (1970-01-01)
@@ -211,10 +212,7 @@ mod tests {
 
         let kv_meta = KVMeta::new(None, Some(100_000_000_002));
         let serialized = serde_json::to_string(&kv_meta).unwrap();
-        assert_eq!(
-            serialized,
-            r#"{"expire_at":null,"proposed_at_ms":100000000002}"#
-        );
+        assert_eq!(serialized, r#"{"proposed_at_ms":100000000002}"#);
 
         let s = r#"{"expire_at":100000000001,"proposed_at_ms":100000000002}"#;
         let deserialized: KVMeta = serde_json::from_str(s).unwrap();
