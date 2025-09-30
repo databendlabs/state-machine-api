@@ -1,6 +1,6 @@
 [package]
 name = "state-machine-api"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["drmingdrmer <drdr.xp@gmail.com>"]
 license = "Apache-2.0"
 publish = true
