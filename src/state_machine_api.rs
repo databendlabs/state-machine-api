@@ -18,7 +18,6 @@ use std::time::Duration;
 use map_api::mvcc;
 
 use crate::ExpireKey;
-use crate::MetaValue;
 use crate::SeqV;
 use crate::UserKey;
 
@@ -29,7 +28,7 @@ use crate::UserKey;
 #[async_trait::async_trait]
 pub trait StateMachineApi<SysData>: Send + Sync {
     /// The map that stores application data.
-    type UserMap: mvcc::ScopedApi<UserKey, MetaValue> + Send + Sync + 'static;
+    type UserMap: mvcc::ViewApi<UserKey> + Send + Sync + 'static;
 
     /// Returns a reference to the map that stores application data.
     ///
@@ -46,7 +45,7 @@ pub trait StateMachineApi<SysData>: Send + Sync {
     fn user_map_mut(&mut self) -> &mut Self::UserMap;
 
     /// The map that stores expired key data.
-    type ExpireMap: mvcc::ScopedApi<ExpireKey, String> + Send + Sync + 'static;
+    type ExpireMap: mvcc::ViewApi<ExpireKey> + Send + Sync + 'static;
 
     /// Returns a reference to the map that stores expired key data.
     fn expire_map(&self) -> &Self::ExpireMap;
