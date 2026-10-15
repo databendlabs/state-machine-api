@@ -39,6 +39,13 @@ pub struct KVMeta {
     /// when the raft-log that writes this record is proposed by the Raft Leader.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proposed_at_ms: Option<u64>,
+
+    /// The id of the cascade this record owns.
+    ///
+    /// A cascade is a group of keys linked to this record. They are deleted
+    /// when this record is deleted or is written with a different id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cascade_id: Option<u64>,
 }
 
 impl KVMeta {
@@ -49,6 +56,7 @@ impl KVMeta {
         Self {
             expire_at: expire_at_sec_or_ms,
             proposed_at_ms,
+            cascade_id: None,
         }
     }
 
@@ -59,6 +67,7 @@ impl KVMeta {
         Self {
             expire_at: Some(expires_at_sec_or_ms),
             proposed_at_ms: None,
+            cascade_id: None,
         }
     }
 
@@ -83,6 +92,17 @@ impl KVMeta {
 
     pub fn proposed_at_ms(&self) -> Option<u64> {
         self.proposed_at_ms
+    }
+
+    /// Returns the id of the cascade this record owns.
+    pub fn cascade_id(&self) -> Option<u64> {
+        self.cascade_id
+    }
+
+    /// Set the id of the cascade this record owns.
+    pub fn with_cascade_id(mut self, cascade_id: Option<u64>) -> Self {
+        self.cascade_id = cascade_id;
+        self
     }
 }
 
@@ -111,6 +131,14 @@ impl fmt::Display for KVMeta {
                 "proposed_at: {}",
                 proposed_at.display_unix_timestamp_short()
             )?
+        }
+
+        if let Some(cascade_id) = self.cascade_id {
+            if need_comma {
+                write!(f, ", ")?;
+            }
+            need_comma = true;
+            write!(f, "cascade_id: {}", cascade_id)?
         }
 
         let _ = need_comma;
@@ -232,5 +260,70 @@ mod tests {
         let s = r#"{}"#;
         let deserialized: KVMeta = serde_json::from_str(s).unwrap();
         assert_eq!(deserialized, KVMeta::new(None, None));
+    }
+
+    #[test]
+    fn test_cascade_kv_meta_accessors() {
+        let kv_meta = KVMeta::new(Some(100_000_000_001), Some(100_000_000_002));
+        assert_eq!(kv_meta.cascade_id(), None);
+
+        let kv_meta = KVMeta::new_expires_at(100_000_000_001);
+        assert_eq!(kv_meta.cascade_id(), None);
+
+        let kv_meta = KVMeta::new(Some(100_000_000_001), None).with_cascade_id(Some(812));
+        assert_eq!(kv_meta, KVMeta {
+            expire_at: Some(100_000_000_001),
+            proposed_at_ms: None,
+            cascade_id: Some(812),
+        });
+        assert_eq!(kv_meta.cascade_id(), Some(812));
+
+        let kv_meta = kv_meta.with_cascade_id(None);
+        assert_eq!(kv_meta, KVMeta::new(Some(100_000_000_001), None));
+    }
+
+    #[test]
+    fn test_cascade_kv_meta_serde() {
+        // JSON written before `cascade_id` existed decodes to `None`.
+        let s = r#"{"expire_at":100000000001,"proposed_at_ms":100000000002}"#;
+        let deserialized: KVMeta = serde_json::from_str(s).unwrap();
+        assert_eq!(deserialized, KVMeta {
+            expire_at: Some(100_000_000_001),
+            proposed_at_ms: Some(100_000_000_002),
+            cascade_id: None,
+        });
+
+        // A record without a cascade writes the same JSON as before.
+        let serialized = serde_json::to_string(&deserialized).unwrap();
+        assert_eq!(serialized, s);
+
+        let kv_meta =
+            KVMeta::new(Some(100_000_000_001), Some(100_000_000_002)).with_cascade_id(Some(812));
+        let serialized = serde_json::to_string(&kv_meta).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"expire_at":100000000001,"proposed_at_ms":100000000002,"cascade_id":812}"#
+        );
+        let deserialized: KVMeta = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, kv_meta);
+
+        let kv_meta = KVMeta::default().with_cascade_id(Some(812));
+        let serialized = serde_json::to_string(&kv_meta).unwrap();
+        assert_eq!(serialized, r#"{"cascade_id":812}"#);
+        let deserialized: KVMeta = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, kv_meta);
+    }
+
+    #[test]
+    fn test_cascade_kv_meta_display() {
+        let kv_meta =
+            KVMeta::new(Some(100_000_000_001), Some(100_000_000_002)).with_cascade_id(Some(812));
+        assert_eq!(
+            kv_meta.to_string(),
+            "(expires_at: 1973-03-03T09:46:40.001, proposed_at: 1973-03-03T09:46:40.002, cascade_id: 812)"
+        );
+
+        let kv_meta = KVMeta::default().with_cascade_id(Some(812));
+        assert_eq!(kv_meta.to_string(), "(cascade_id: 812)");
     }
 }
